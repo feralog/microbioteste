@@ -150,7 +150,7 @@
     let userName, currentQuestion = 0, startTime, timerInterval;
     const userAnswers = [];
 
-    const API_URL = 'https://script.google.com/macros/s/AKfycbyLeSW3DGe71lQbIsAonsXU20EuwOQFjEYLTairWArFUSvB33-seG6w2ZTOo4iUxyF4/exec'; // substituir após deploy
+    const API_URL = 'https://script.google.com/macros/s/AKfycbx8Y5an_KWpExZqc0Wt1eUdZR8jz_VqFAwHjvPQLauML42WO6lUtZRVcC6ESIp79d2X/exec'; // substituir após deploy
 
     // Elementos DOM
     const startScreen = document.getElementById('start-screen');
@@ -246,10 +246,13 @@
 
       // envia ao backend
       fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usuario: userName, pontuacao: correctCount, tempo: elapsedSec })
-      });
+   method: 'POST',
+   body: new URLSearchParams({
+     usuario: userName,
+     pontuacao: correctCount,
+     tempo: elapsedSec
+   })
+ });
 
       // resumo por questão
       summaryList.innerHTML = '';
