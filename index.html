@@ -1,185 +1,305 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Revisor de Flashcards</title>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Quiz de Arboviroses</title>
+  <!-- Bootstrap CSS -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-Gtvj8eVt81+g+Z1SUv1+7hYhoonIF9m+QHqIu+V+X+0P+GSe9eTqfNsNq25Cn9du"
+    crossorigin="anonymous"
+  />
   <style>
-    body { font-family: Arial, sans-serif; max-width: 600px; margin: 2rem auto; padding: 1rem; }
-    #controls, #review { text-align: center; margin-top: 2rem; }
-    #question, #answer { font-size: 1.25rem; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; margin: 1rem 0; }
-    .btn { padding: 0.5rem 1rem; margin: 0.5rem; border: none; border-radius: 4px; cursor: pointer; }
-    .btn-start { background: #007bff; color: #fff; }
-    .btn-show { background: #17a2b8; color: #fff; }
-    .btn-rate { background: #28a745; color: #fff; }
-    #timer { font-size: 1rem; margin-top: 0.5rem; }
-    #leaderboard {
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      padding: 1rem;
-      margin-top: 1rem;
-      background: #f9f9f9;
-      max-height: 200px;
-      overflow-y: auto;
-      text-align: left;
-    }
-    #end-screen input { padding: 0.5rem; margin: 0.5rem; width: calc(100% - 1rem); }
+    /* Timer positioning */
+    #timer { position: absolute; top: 1rem; right: 1rem; font-weight: bold; }
+    /* Hide screens by default */
+    #quiz-screen, #result-screen { display: none; }
+    /* Expandable detail styling */
+    .detail { cursor: pointer; }
+    .detail-content { display: none; margin-top: 0.5rem; padding: 0.5rem; border: 1px solid #ccc; border-radius: .25rem; }
   </style>
 </head>
-<body>
-  <h1>Revisor de Flashcards</h1>
-
-  <div id="controls">
-    <button id="start-review" class="btn btn-start">Iniciar Revisão</button>
-    <button id="reset-data" class="btn btn-rate">Reiniciar cards/resetar dados</button>
-    <div id="scoreboard" style="margin-top:1rem; display:none;">
-      Pontos: <span id="score">0</span> | Nível: <span id="level">1</span>
+<body class="bg-light">
+  <div class="container py-5">
+    <!-- Tela inicial -->
+    <div id="start-screen" class="text-center">
+      <h1 class="mb-4">Quiz de Arboviroses</h1>
+      <input id="username" type="text" class="form-control mb-3" placeholder="Digite seu nome" />
+      <button id="start-btn" class="btn btn-primary">Iniciar Quiz</button>
     </div>
-    <div id="leaderboard"><p>Carregando leaderboard...</p></div>
-  </div>
 
-  <div id="review" style="display:none;">
-    <div id="question"></div>
-    <button id="show-answer" class="btn btn-show">Mostrar Resposta</button>
-    <div id="answer"></div>
-    <div id="timer">Tempo restante: <span id="time">30</span>s</div>
-    <div id="rating-buttons" style="display:none; margin-top:1rem;">
-      <button id="btn-rate" class="btn btn-rate">Bom</button>
+    <!-- Quiz -->
+    <div id="quiz-screen" class="position-relative">
+      <div id="timer">00:00</div>
+      <div id="question-container" class="my-4"></div>
+      <div id="options-container" class="d-grid gap-2"></div>
+      <div id="explanation" class="mt-3"></div>
+      <button id="next-btn" class="btn btn-primary mt-3" style="display:none;">Próxima Questão</button>
     </div>
-    <div id="progress"></div>
-    <div id="end-screen" style="display:none; margin-top:1rem;"></div>
+
+    <!-- Resultado -->
+    <div id="result-screen">
+      <h2 id="score" class="mb-4"></h2>
+      <ul id="summary-list" class="list-group mb-4"></ul>
+
+      <h3>Leaderboard</h3>
+      <table id="leaderboard" class="table table-striped">
+        <thead>
+          <tr><th>Nome</th><th>Acertos</th><th>Tempo (s)</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <button id="restart-btn" class="btn btn-secondary">Voltar ao Início</button>
+    </div>
   </div>
 
   <script>
-    // Cache de elementos
-    const startBtn      = document.getElementById('start-review');
-    const resetBtn      = document.getElementById('reset-data');
-    const scoreDiv      = document.getElementById('scoreboard');
-    const scoreEl       = document.getElementById('score');
-    const levelEl       = document.getElementById('level');
-    const questionEl    = document.getElementById('question');
-    const answerEl      = document.getElementById('answer');
-    const showBtn       = document.getElementById('show-answer');
-    const rateBtn       = document.getElementById('btn-rate');
-    const ratingDiv     = document.getElementById('rating-buttons');
-    const timeEl        = document.getElementById('time');
-    const progressEl    = document.getElementById('progress');
-    const endScreen     = document.getElementById('end-screen');
-    const controls      = document.getElementById('controls');
-    const reviewDiv     = document.getElementById('review');
-    const leaderboardEl = document.getElementById('leaderboard');
-
-    // Variáveis de estado
-    let cards = [], current = 0, score = 0, level = 1;
-    let timerInterval, timeLeft;
-
-    // API endpoints para ranking
-    const API_URL = 'https://script.google.com/macros/s/AKfycbxRpLSPcdJcBq_StvISGyoMMjRzXsNZd6eY01w84tQhIN24JMj0XTUntspUxs3WcXY/exec';
-
-    async function fetchRanking() {
-      try {
-        const res = await fetch(API_URL);
-        const ranking = await res.json();
-        ranking.sort((a, b) => b.pontuacao - a.pontuacao);
-        if (ranking.length === 0) {
-          leaderboardEl.innerHTML = '<p>Sem pontuações ainda.</p>';
-          return;
-        }
-        let html = '<h2>Leaderboard</h2><ol>' + ranking.map(r =>
-          `<li>${r.usuario}: ${r.pontuacao} pts</li>`
-        ).join('') + '</ol>';
-        leaderboardEl.innerHTML = html;
-      } catch (e) {
-        console.error('Erro ao carregar leaderboard', e);
-        leaderboardEl.innerHTML = '<p>Falha ao carregar leaderboard.</p>';
+    // === Perguntas ===
+    const questions = [
+      {
+        question: "Qual família viral inclui o vírus da febre amarela?",
+        options: ["Togaviridae", "Flaviviridae", "Bunyaviridae", "Reoviridae"],
+        correctIndex: 1,
+        explanation: "Flaviviridae é a família que inclui o vírus da febre amarela."
+      },
+      {
+        question: "O principal vetor urbano da dengue no Brasil é:",
+        options: ["Culex spp.", "Haemagogus spp.", "Aedes aegypti", "Sabethes spp."],
+        correctIndex: 2,
+        explanation: "Aedes aegypti é o principal vetor urbano da dengue no Brasil."
+      },
+      {
+        question: "A fase crítica da dengue é caracterizada principalmente por:",
+        options: ["Febre alta persistente", "Hemorragia grave e extravasamento plasmático", "Hepatite fulminante", "Conjuntivite"],
+        correctIndex: 1,
+        explanation: "A fase crítica envolve hemorragias e extravasamento de plasma."
+      },
+      {
+        question: "Em relação à febre amarela, o sinal de Faget consiste em:",
+        options: ["Bradicardia com febre alta", "Taquicardia e febre baixa", "Bradicardia e hipotermia", "Hipotensão isolada"],
+        correctIndex: 0,
+        explanation: "Sinal de Faget é a associação de febre alta com bradicardia."
+      },
+      {
+        question: "No ciclo da febre amarela, os reservatórios silvestres incluem:",
+        options: ["Cães e gatos", "Humanos", "Macacos", "Mosquitos"],
+        correctIndex: 2,
+        explanation: "Macacos são os principais reservatórios silvestres da febre amarela."
+      },
+      {
+        question: "A transmissão alternativa do vírus Zika inclui:",
+        options: ["Transmissão por alimentos", "Transmissão sexual", "Transmissão vetorial exclusivamente", "Transmissão por objetos contaminados"],
+        correctIndex: 1,
+        explanation: "O vírus Zika pode ser transmitido sexualmente além do vetor."
+      },
+      {
+        question: "A febre amarela pode ser prevenida por:",
+        options: ["Antibióticos", "Soroterapia", "Vacinação", "Antivirais específicos"],
+        correctIndex: 2,
+        explanation: "A vacinação é a forma eficaz de prevenção contra febre amarela."
+      },
+      {
+        question: "Um fator de risco para expansão das arboviroses é:",
+        options: ["Urbanização planejada", "Baixa mobilidade populacional", "Transporte intenso de cargas", "Saneamento básico adequado"],
+        correctIndex: 2,
+        explanation: "O transporte intenso de cargas facilita a expansão de vetores."
+      },
+      {
+        question: "A principal fase de viremia da chikungunya dura aproximadamente:",
+        options: ["3 dias", "7 dias", "10 dias", "14 dias"],
+        correctIndex: 2,
+        explanation: "A fase de viremia na chikungunya dura cerca de 10 dias."
+      },
+      {
+        question: "A síndrome de Guillain-Barré está associada principalmente a infecção por:",
+        options: ["Dengue", "Febre Amarela", "Zika", "Chikungunya"],
+        correctIndex: 2,
+        explanation: "O vírus Zika é fortemente associado à síndrome de Guillain-Barré."
+      },
+      {
+        question: "No diagnóstico de dengue, a proteína detectada por testes é:",
+        options: ["NS1", "GP120", "M1", "HA"],
+        correctIndex: 0,
+        explanation: "A proteína NS1 é detectada em testes rápidos de dengue."
+      },
+      {
+        question: "A infecção sequencial por sorotipos diferentes da dengue pode levar a:",
+        options: ["Hepatite autoimune", "Dengue grave (SCD/FHD)", "Síndrome nefrótica", "Paralisia facial"],
+        correctIndex: 1,
+        explanation: "A infecção por sorotipos diferentes aumenta o risco de dengue grave."
+      },
+      {
+        question: "Um sintoma típico da fase crônica da chikungunya é:",
+        options: ["Febre alta", "Alopecia", "Náusea intensa", "Anemia severa"],
+        correctIndex: 1,
+        explanation: "Alopecia pode ocorrer na fase crônica da chikungunya."
+      },
+      {
+        question: "Qual fator imunológico é associado à teoria dos anticorpos potencializadores da dengue?",
+        options: ["Resposta mediada por células T", "Formação de autoanticorpos", "Antibody Dependent Enhancement (ADE)", "Deposição de complexos imunes"],
+        correctIndex: 2,
+        explanation: "O fenômeno ADE explica a gravidade em infecções secundárias de dengue."
+      },
+      {
+        question: "No tratamento das arboviroses, deve-se evitar:",
+        options: ["Paracetamol", "Hidratação oral", "Salicilatos", "Reposição de eletrólitos"],
+        correctIndex: 2,
+        explanation: "Salicilatos devem ser evitados pelo risco de sangramento nas arboviroses."
       }
+    ];
+
+    // === Variáveis de estado ===
+    let userName, currentQuestion = 0, startTime, timerInterval;
+    const userAnswers = [];
+
+    const API_URL = 'https://script.google.com/macros/s/AKfycbxRpLSPcdJcBq_StvISGyoMMjRzXsNZd6eY01w84tQhIN24JMj0XTUntspUxs3WcXY/exec'; // substituir após deploy
+
+    // Elementos DOM
+    const startScreen = document.getElementById('start-screen');
+    const quizScreen  = document.getElementById('quiz-screen');
+    const resultScreen = document.getElementById('result-screen');
+    const questionContainer = document.getElementById('question-container');
+    const optionsContainer  = document.getElementById('options-container');
+    const explanationDiv    = document.getElementById('explanation');
+    const nextBtn = document.getElementById('next-btn');
+    const timerDiv = document.getElementById('timer');
+    const scoreH2  = document.getElementById('score');
+    const summaryList = document.getElementById('summary-list');
+    const leaderboardBody = document.querySelector('#leaderboard tbody');
+
+    // === Funções Principais ===
+
+    // Inicia quiz
+    document.getElementById('start-btn').addEventListener('click', () => {
+      userName = document.getElementById('username').value.trim() || 'Anônimo';
+      startScreen.style.display = 'none';
+      quizScreen.style.display = 'block';
+      startTime = Date.now();
+      timerInterval = setInterval(updateTimer, 1000);
+      showQuestion();
+    });
+
+    // Atualiza cronômetro
+    function updateTimer() {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const s = String(elapsed % 60).padStart(2, '0');
+      timerDiv.textContent = `${m}:${s}`;
     }
 
-    async function sendScore(usuario, pontuacao) {
-      try {
-        await fetch(API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usuario, pontuacao })
-        });
-        fetchRanking();
-      } catch (e) {
-        console.error('Erro ao enviar pontuação', e);
+    // Exibe questão atual
+    function showQuestion() {
+      const q = questions[currentQuestion];
+      questionContainer.textContent = q.question;
+      optionsContainer.innerHTML = '';
+      explanationDiv.textContent = '';
+      nextBtn.style.display = 'none';
+
+      q.options.forEach((opt, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-outline-primary';
+        btn.textContent = String.fromCharCode(97 + idx) + ') ' + opt;
+        btn.addEventListener('click', () => selectOption(idx, btn));
+        optionsContainer.appendChild(btn);
+      });
+    }
+
+    // Manipula seleção de alternativa
+    function selectOption(idx, btn) {
+      // desabilita todas
+      Array.from(optionsContainer.children).forEach(b => b.disabled = true);
+
+      const correctIdx = questions[currentQuestion].correctIndex;
+      if (idx === correctIdx) {
+        btn.classList.replace('btn-outline-primary', 'btn-success');
+      } else {
+        btn.classList.replace('btn-outline-primary', 'btn-danger');
+        // destaca correta
+        optionsContainer.children[correctIdx]
+          .classList.replace('btn-outline-primary', 'btn-success');
       }
+
+      // armazena resposta
+      userAnswers.push({ selected: idx, correct: correctIdx });
+      // mostra explicação e próximo
+      explanationDiv.textContent = questions[currentQuestion].explanation;
+      nextBtn.style.display = 'inline-block';
     }
 
-    function parseText(data) {
-      cards = data.split(/\r?\n/)
-        .filter(l => l && !l.startsWith('#'))
-        .map(line => {
-          const [q, a] = line.split('\t');
-          return { q: q.trim(), a: (a||'').trim() };
-        });
-    }
+    // Avança para próxima ou resultados
+    nextBtn.addEventListener('click', () => {
+      currentQuestion++;
+      if (currentQuestion < questions.length) {
+        showQuestion();
+      } else {
+        showResult();
+      }
+    });
 
-    function startTimer() {
+    // Exibe resultados finais
+    function showResult() {
       clearInterval(timerInterval);
-      timeLeft = 30; timeEl.textContent = timeLeft;
-      timerInterval = setInterval(() => {
-        if (--timeLeft <= 0) {
-          clearInterval(timerInterval);
-          rateBtn.disabled = true; timeEl.textContent = '0';
-        } else {
-          timeEl.textContent = timeLeft;
-        }
-      }, 1000);
+      quizScreen.style.display = 'none';
+      resultScreen.style.display = 'block';
+
+      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+      const correctCount = userAnswers.filter(a => a.selected === a.correct).length;
+      scoreH2.textContent = `Você acertou ${correctCount} de ${questions.length} questões`;
+
+      // envia ao backend
+      fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario: userName, pontuacao: correctCount, tempo: elapsedSec })
+      });
+
+      // resumo por questão
+      summaryList.innerHTML = '';
+      userAnswers.forEach((ans, i) => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item detail';
+        li.textContent = `Você marcou ${String.fromCharCode(97+ans.selected)}, a correta era ${String.fromCharCode(97+ans.correct)}`;
+        const detail = document.createElement('div');
+        detail.className = 'detail-content';
+        // enunciado e alternativas originais
+        detail.innerHTML = `<strong>Q${i+1}:</strong> ${questions[i].question}<br>` +
+          questions[i].options.map((opt, j) => {
+            const mark = j===ans.correct ? 'border-success' : (j===ans.selected ? 'border-danger' : '');
+            return `<div class="p-1 my-1 border ${mark}">${String.fromCharCode(97+j)}) ${opt}</div>`;
+          }).join('');
+        li.appendChild(detail);
+        li.addEventListener('click', () => {
+          detail.style.display = detail.style.display === 'none' ? 'block' : 'none';
+        });
+        summaryList.appendChild(li);
+      });
+
+      // carrega leaderboard
+      fetch(API_URL)
+        .then(r => r.json())
+        .then(data => {
+          leaderboardBody.innerHTML = '';
+          data.forEach(rec => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${rec.usuario}</td><td>${rec.pontuacao}</td><td>${rec.tempo}</td>`;
+            leaderboardBody.appendChild(tr);
+          });
+        });
     }
 
-    function stopTimer() {
-      clearInterval(timerInterval);
-      return Math.max(0, timeLeft);
-    }
-
-    function showCard() {
-      endScreen.style.display = 'none';
-      if (current >= cards.length) {
-        questionEl.textContent = 'Revisão concluída!';
-        showBtn.style.display = 'none'; ratingDiv.style.display = 'none';
-        endScreen.innerHTML = `
-          <p>Sua pontuação nesta rodada: <strong>${score}</strong> pontos.</p>
-          <input id="username" placeholder="Digite seu nome" />
-          <button id="submit-score" class="btn btn-start">Enviar pontuação</button>
-          <button id="restart" class="btn btn-start">Reiniciar</button>
-        `;
-        endScreen.style.display = 'block';
-        document.getElementById('submit-score').onclick = () => {
-          const user = document.getElementById('username').value.trim();
-          if (user) sendScore(user, score);
-        };
-        document.getElementById('restart').onclick = () => location.reload();
-        return;
-      }
-      const card = cards[current];
-      questionEl.textContent = card.q; answerEl.textContent = '';
-      showBtn.style.display = 'inline-block'; ratingDiv.style.display = 'none'; rateBtn.disabled = false;
-      progressEl.textContent = `Carta ${current+1} de ${cards.length}`;
-      startTimer();
-    }
-
-    showBtn.onclick = () => {
-      const remaining = stopTimer();
-      score += remaining; scoreEl.textContent = score;
-      answerEl.textContent = cards[current].a;
-      showBtn.style.display = 'none'; ratingDiv.style.display = 'block';
-    };
-
-    rateBtn.onclick = () => { current++; showCard(); };
-    resetBtn.onclick = () => { localStorage.clear(); document.cookie.split(';')
-      .forEach(c => document.cookie = c.replace(/=.*/, '=;expires=Thu,01 Jan 1970 GMT;path=/'));
-      location.reload(); };
-    startBtn.onclick = async () => {
-      const res = await fetch('Parasito.txt'); const text = await res.text(); parseText(text);
-      controls.style.display = 'none'; reviewDiv.style.display = 'block'; scoreDiv.style.display = 'block';
-      fetchRanking(); showCard();
-    };
-
-    // Carrega leaderboard ao iniciar
-    document.addEventListener('DOMContentLoaded', fetchRanking);
+    // Reinicia tudo
+    document.getElementById('restart-btn').addEventListener('click', () => {
+      // reset estado
+      currentQuestion = 0;
+      userAnswers.length = 0;
+      summaryList.innerHTML = '';
+      leaderboardBody.innerHTML = '';
+      resultScreen.style.display = 'none';
+      startScreen.style.display = 'block';
+    });
   </script>
 </body>
 </html>
