@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Revisor de Flashcards</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+    #controls, #review { text-align: center; margin-top: 2rem; }
+    #question, #answer { font-size: 1.25rem; padding: 1rem; border: 1px solid #ccc; border-radius: 8px; margin: 1rem 0; }
+    .btn { padding: 0.5rem 1rem; margin: 0.5rem; border: none; border-radius: 4px; cursor: pointer; }
+    .btn-start { background: #007bff; color: #fff; }
+    .btn-show { background: #17a2b8; color: #fff; }
+    .btn-rate { background: #28a745; color: #fff; }
+    #timer { font-size: 1rem; margin-top: 0.5rem; }
+    #leaderboard {
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      background: #f9f9f9;
+      max-height: 200px;
+      overflow-y: auto;
+      text-align: left;
+    }
+    #end-screen input { padding: 0.5rem; margin: 0.5rem; width: calc(100% - 1rem); }
+  </style>
+</head>
+<body>
+  <h1>Revisor de Flashcards</h1>
+
+  <div id="controls">
+    <button id="start-review" class="btn btn-start">Iniciar Revisão</button>
+    <button id="reset-data" class="btn btn-rate">Reiniciar cards/resetar dados</button>
+    <div id="scoreboard" style="margin-top:1rem; display:none;">
+      Pontos: <span id="score">0</span> | Nível: <span id="level">1</span>
+    </div>
+    <div id="leaderboard"><p>Carregando leaderboard...</p></div>
+  </div>
+
+  <div id="review" style="display:none;">
+    <div id="question"></div>
+    <button id="show-answer" class="btn btn-show">Mostrar Resposta</button>
+    <div id="answer"></div>
+    <div id="timer">Tempo restante: <span id="time">30</span>s</div>
+    <div id="rating-buttons" style="display:none; margin-top:1rem;">
+      <button id="btn-rate" class="btn btn-rate">Bom</button>
+    </div>
+    <div id="progress"></div>
+    <div id="end-screen" style="display:none; margin-top:1rem;"></div>
+  </div>
+
+  <script>
+    // Cache de elementos
+    const startBtn      = document.getElementById('start-review');
+    const resetBtn      = document.getElementById('reset-data');
+    const scoreDiv      = document.getElementById('scoreboard');
+    const scoreEl       = document.getElementById('score');
+    const levelEl       = document.getElementById('level');
+    const questionEl    = document.getElementById('question');
+    const answerEl      = document.getElementById('answer');
+    const showBtn       = document.getElementById('show-answer');
+    const rateBtn       = document.getElementById('btn-rate');
+    const ratingDiv     = document.getElementById('rating-buttons');
+    const timeEl        = document.getElementById('time');
+    const progressEl    = document.getElementById('progress');
+    const endScreen     = document.getElementById('end-screen');
+    const controls      = document.getElementById('controls');
+    const reviewDiv     = document.getElementById('review');
+    const leaderboardEl = document.getElementById('leaderboard');
+
+    // Variáveis de estado
+    let cards = [], current = 0, score = 0, level = 1;
+    let timerInterval, timeLeft;
+
+    // API endpoints para ranking
+    const API_URL = 'https://script.google.com/macros/s/AKfycbxRpLSPcdJcBq_StvISGyoMMjRzXsNZd6eY01w84tQhIN24JMj0XTUntspUxs3WcXY/exec';
+
+    async function fetchRanking() {
+      try {
+        const res = await fetch(API_URL);
+        const ranking = await res.json();
+        ranking.sort((a, b) => b.pontuacao - a.pontuacao);
+        if (ranking.length === 0) {
+          leaderboardEl.innerHTML = '<p>Sem pontuações ainda.</p>';
+          return;
+        }
+        let html = '<h2>Leaderboard</h2><ol>' + ranking.map(r =>
+          `<li>${r.usuario}: ${r.pontuacao} pts</li>`
+        ).join('') + '</ol>';
+        leaderboardEl.innerHTML = html;
+      } catch (e) {
+        console.error('Erro ao carregar leaderboard', e);
+        leaderboardEl.innerHTML = '<p>Falha ao carregar leaderboard.</p>';
+      }
+    }
+
+    async function sendScore(usuario, pontuacao) {
+      try {
+        await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usuario, pontuacao })
+        });
+        fetchRanking();
+      } catch (e) {
+        console.error('Erro ao enviar pontuação', e);
+      }
+    }
+
+    function parseText(data) {
+      cards = data.split(/\r?\n/)
+        .filter(l => l && !l.startsWith('#'))
+        .map(line => {
+          const [q, a] = line.split('\t');
+          return { q: q.trim(), a: (a||'').trim() };
+        });
+    }
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      timeLeft = 30; timeEl.textContent = timeLeft;
+      timerInterval = setInterval(() => {
+        if (--timeLeft <= 0) {
+          clearInterval(timerInterval);
+          rateBtn.disabled = true; timeEl.textContent = '0';
+        } else {
+          timeEl.textContent = timeLeft;
+        }
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      return Math.max(0, timeLeft);
+    }
+
+    function showCard() {
+      endScreen.style.display = 'none';
+      if (current >= cards.length) {
+        questionEl.textContent = 'Revisão concluída!';
+        showBtn.style.display = 'none'; ratingDiv.style.display = 'none';
+        endScreen.innerHTML = `
+          <p>Sua pontuação nesta rodada: <strong>${score}</strong> pontos.</p>
+          <input id="username" placeholder="Digite seu nome" />
+          <button id="submit-score" class="btn btn-start">Enviar pontuação</button>
+          <button id="restart" class="btn btn-start">Reiniciar</button>
+        `;
+        endScreen.style.display = 'block';
+        document.getElementById('submit-score').onclick = () => {
+          const user = document.getElementById('username').value.trim();
+          if (user) sendScore(user, score);
+        };
+        document.getElementById('restart').onclick = () => location.reload();
+        return;
+      }
+      const card = cards[current];
+      questionEl.textContent = card.q; answerEl.textContent = '';
+      showBtn.style.display = 'inline-block'; ratingDiv.style.display = 'none'; rateBtn.disabled = false;
+      progressEl.textContent = `Carta ${current+1} de ${cards.length}`;
+      startTimer();
+    }
+
+    showBtn.onclick = () => {
+      const remaining = stopTimer();
+      score += remaining; scoreEl.textContent = score;
+      answerEl.textContent = cards[current].a;
+      showBtn.style.display = 'none'; ratingDiv.style.display = 'block';
+    };
+
+    rateBtn.onclick = () => { current++; showCard(); };
+    resetBtn.onclick = () => { localStorage.clear(); document.cookie.split(';')
+      .forEach(c => document.cookie = c.replace(/=.*/, '=;expires=Thu,01 Jan 1970 GMT;path=/'));
+      location.reload(); };
+    startBtn.onclick = async () => {
+      const res = await fetch('Parasito.txt'); const text = await res.text(); parseText(text);
+      controls.style.display = 'none'; reviewDiv.style.display = 'block'; scoreDiv.style.display = 'block';
+      fetchRanking(); showCard();
+    };
+
+    // Carrega leaderboard ao iniciar
+    document.addEventListener('DOMContentLoaded', fetchRanking);
+  </script>
+</body>
+</html>
